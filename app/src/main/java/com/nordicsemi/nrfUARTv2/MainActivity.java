@@ -29,6 +29,7 @@ package com.nordicsemi.nrfUARTv2;
 import java.io.UnsupportedEncodingException;
 import java.text.DateFormat;
 import java.util.Date;
+import java.util.UUID;
 
 
 import com.nordicsemi.nrfUARTv2.UartService;
@@ -66,6 +67,8 @@ import android.widget.ListView;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
+import com.getpebble.android.kit.PebbleKit;
+import com.getpebble.android.kit.util.PebbleDictionary;
 
 public class MainActivity extends Activity implements RadioGroup.OnCheckedChangeListener {
     private static final int REQUEST_SELECT_DEVICE = 1;
@@ -76,6 +79,21 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private static final int UART_PROFILE_DISCONNECTED = 21;
     private static final int STATE_OFF = 10;
 
+    //FROM PEBBLE APP SIDE =====================================
+    private static final UUID WATCHAPP_UUID = UUID.fromString("67b2e50e-9d9f-46ed-a41a-f5ff70002ff7");
+    private static final int
+            KEY_BUTTON = 0,
+            KEY_VIBRATE = 1,
+            BUTTON_UP = 0,
+            BUTTON_SELECT = 1,
+            BUTTON_DOWN = 2,
+            KEY_HEARTRATE = 2;
+
+    private Handler handler = new Handler();
+    private PebbleKit.PebbleDataReceiver appMessageReciever;
+    private TextView whichButtonView;
+    private TextView heartRate;
+    //===========================================================
     TextView mRemoteRssiVal;
     RadioGroup mRg;
     private int mState = UART_PROFILE_DISCONNECTED;
@@ -100,27 +118,29 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         listAdapter = new ArrayAdapter<String>(this, R.layout.message_detail);
         messageListView.setAdapter(listAdapter);
         messageListView.setDivider(null);
-        btnConnectDisconnect=(Button) findViewById(R.id.btn_select);
+        //btnConnectDisconnect=(Button) findViewById(R.id.btn_select);
         btnSend=(Button) findViewById(R.id.sendButton);
         edtMessage = (EditText) findViewById(R.id.sendText);
         service_init();
 
-        /*if (!mBtAdapter.isEnabled()) {
-            Log.i(TAG, "onClick - BT not enabled yet");
-            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
-        }
-        else {
-            String deviceAddress = "72:BB:A4:DC:92:F9";
-            mDevice = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(deviceAddress);
+        //PEBBLE APP=============================
+        // Add vibrate Button behavior
+        Button vibrateButton = (Button)findViewById(R.id.button_vibrate);
+        vibrateButton.setOnClickListener(new View.OnClickListener() {
 
-            Log.d(TAG, "... onActivityResultdevice.address==" + mDevice + "mserviceValue" + mService);
-            ((TextView) findViewById(R.id.deviceName)).setText(mDevice.getName()+ " - connecting");
-            mService.connect(deviceAddress);
+            @Override
+            public void onClick(View v) {
+                // Send KEY_VIBRATE to Pebble
+                PebbleDictionary out = new PebbleDictionary();
+                out.addInt32(KEY_VIBRATE, 0);
+                PebbleKit.sendDataToPebble(getApplicationContext(), WATCHAPP_UUID, out);
+            }
 
-
-
-        }*/
+        });
+        // Add output TextView behavior
+        whichButtonView = (TextView)findViewById(R.id.which_button);
+        heartRate = (TextView)findViewById(R.id.heartrate);
+        //=======================================
        
         // Handle Disconnect & Connect button
        /*btnConnectDisconnect.setOnClickListener(new View.OnClickListener() {
@@ -232,7 +252,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                      public void run() {
                          	String currentDateTimeString = DateFormat.getTimeInstance().format(new Date());
                              Log.d(TAG, "UART_CONNECT_MSG");
-                             btnConnectDisconnect.setText("Disconnect");
+                             //btnConnectDisconnect.setText("Disconnect");
                              edtMessage.setEnabled(true);
                              btnSend.setEnabled(true);
                              ((TextView) findViewById(R.id.deviceName)).setText(mDevice.getName()+ " - ready");
@@ -249,7 +269,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                      public void run() {
                     	 	 String currentDateTimeString = DateFormat.getTimeInstance().format(new Date());
                              Log.d(TAG, "UART_DISCONNECT_MSG");
-                             btnConnectDisconnect.setText("Connect");
+                             //btnConnectDisconnect.setText("Connect");
                              edtMessage.setEnabled(false);
                              btnSend.setEnabled(false);
                              ((TextView) findViewById(R.id.deviceName)).setText("Not Connected");
@@ -341,6 +361,14 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     protected void onPause() {
         Log.d(TAG, "onPause");
         super.onPause();
+
+        //PEBBLE APP=======
+        // Unregister AppMessage reception
+        if(appMessageReciever != null) {
+            unregisterReceiver(appMessageReciever);
+            appMessageReciever = null;
+        }
+        //=================
     }
 
     @Override
@@ -358,6 +386,63 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
             Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
         }
+        //PEBBLE APP=============================================================
+        // Define AppMessage behavior
+        if(appMessageReciever == null) {
+            appMessageReciever = new PebbleKit.PebbleDataReceiver(WATCHAPP_UUID) {
+
+                @Override
+                public void receiveData(Context context, int transactionId, PebbleDictionary data) {
+                    // Always ACK
+                    PebbleKit.sendAckToPebble(context, transactionId);
+
+                    // What message was received?
+                    if(data.getInteger(KEY_BUTTON) != null) {
+                        // KEY_BUTTON was received, determine which button
+                        final int button = data.getInteger(KEY_BUTTON).intValue();
+
+                        // Update UI on correct thread
+                        handler.post(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                switch(button) {
+                                    case BUTTON_UP:
+                                        whichButtonView.setText("UP");
+                                        break;
+                                    case BUTTON_SELECT:
+                                        whichButtonView.setText("SELECT");
+                                        break;
+                                    case BUTTON_DOWN:
+                                        whichButtonView.setText("DOWN");
+                                        break;
+
+                                    default:
+                                        Toast.makeText(getApplicationContext(), "Unknown button: " + button, Toast.LENGTH_SHORT).show();
+                                        break;
+                                }
+                            }
+
+                        });
+                    }
+                    else if(data.getInteger(KEY_HEARTRATE)!= null){
+                        final int heart = data.getInteger(KEY_HEARTRATE).intValue();
+                        handler.post(new Runnable() {
+
+                            @Override
+                            public void run() {
+
+                                heartRate.setText(String.valueOf(heart));    }
+
+                        });
+                    }
+                }
+            };
+
+            // Add AppMessage capabilities
+            PebbleKit.registerReceivedDataHandler(this, appMessageReciever);
+        }
+        //==============================================
  
     }
 
