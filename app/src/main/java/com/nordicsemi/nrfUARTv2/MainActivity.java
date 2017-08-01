@@ -432,7 +432,28 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                             @Override
                             public void run() {
 
-                                heartRate.setText(String.valueOf(heart));    }
+                                heartRate.setText(String.valueOf(heart));
+                                //UART BLUETOOTH==========================
+                                byte[] value;
+                                String message = String.valueOf(heart);
+                                if (mState == UART_PROFILE_CONNECTED) {
+                                    try {
+                                        //send data to service
+                                        value = message.getBytes("UTF-8");
+                                        mService.writeRXCharacteristic(value);
+                                        //Update the log with time stamp
+                                        String currentDateTimeString = DateFormat.getTimeInstance().format(new Date());
+                                        listAdapter.add("[" + currentDateTimeString + "] TX: " + message);
+                                        messageListView.smoothScrollToPosition(listAdapter.getCount() - 1);
+                                        edtMessage.setText("");
+                                    } catch (UnsupportedEncodingException e) {
+                                        // TODO Auto-generated catch block
+                                        e.printStackTrace();
+                                    }
+                                }
+                                //============================================
+
+                            }
 
                         });
                     }
